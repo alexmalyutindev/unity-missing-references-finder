@@ -499,22 +499,25 @@ public class MissingReferencesFinder : MonoBehaviour
         switch (property.serializedObject.targetObject)
         {
             case Component component:
-                var go = component.gameObject;
+                var gameObject = component.gameObject;
+                var assetPath = AssetDatabase.GetAssetPath(gameObject);
                 message = JsonConvert.SerializeObject(
                     new Missing()
                     {
                         Type = Missing.MissingType.MissingReference,
                         Context = context,
-                        Name = go.name,
-                        AssetPath = AssetDatabase.GetAssetPath(go),
-                        LocalPath = FullPath(go),
+                        Name = gameObject.name,
+                        AssetPath = assetPath,
+                        LocalPath = FullPath(gameObject),
                         Component = component.GetType().Name,
                         PropertyName = property.propertyPath
                     }
                 );
-                target = go;
+                target = String.IsNullOrEmpty(assetPath)
+                    ? gameObject
+                    : AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
                 break;
-                
+
             case ScriptableObject so:
                 target = so;
                 message = JsonConvert.SerializeObject(
@@ -555,7 +558,7 @@ public class MissingReferencesFinder : MonoBehaviour
             LogDirectory.FullName,
             $"MissingReport_{DateTime.Now.ToFileTime()}.log"
         );
-        
+
         _logStream = new StreamWriter(logPath);
         return _logStream;
     }
@@ -577,6 +580,7 @@ public class MissingReferencesFinder : MonoBehaviour
             MissingReference,
             MissingComponent
         }
+
         public enum ContextType
         {
             Project,

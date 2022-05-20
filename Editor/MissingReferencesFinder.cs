@@ -1,12 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using Newtonsoft.Json;
 using UnityEditor;
 using UnityEditor.Experimental.SceneManagement;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using Component = UnityEngine.Component;
 
 public class MissingReferencesFinder : MonoBehaviour {
     private class ObjectData {
@@ -233,7 +236,8 @@ public class MissingReferencesFinder : MonoBehaviour {
                 if (sp.propertyType == SerializedPropertyType.ObjectReference) {
                     if (sp.objectReferenceValue           == null
                      && sp.objectReferenceInstanceIDValue != 0) {
-                        showError(context, go, c.GetType().Name, ObjectNames.NicifyVariableName(sp.name));
+                        LogMissing(Missing.ContextType.Project, sp); // TODO: ContextType
+                        // showError(context, go, c.GetType().Name, ObjectNames.NicifyVariableName(sp.name));
                         count++;
                     }
                 }
@@ -362,5 +366,48 @@ public class MissingReferencesFinder : MonoBehaviour {
     {
         Debug.LogError(message, context);
         _logFile?.WriteLine(message);
+    }
+    
+    private static void LogMissing(Missing.ContextType context, GameObject go, string componentName, string property)
+    {
+        var message = JsonUtility.ToJson(new Missing()
+        {
+            Context = context,
+            Name = go.name,
+            Path = FullPath(go),
+            Component = componentName,
+            PropertyName = property
+        });
+        Debug.LogError(message, go);
+        _logFile?.WriteLine(message);
+    }
+    
+    private static void LogMissing(Missing.ContextType context, SerializedProperty property)
+    {
+        var component = property.serializedObject.context as Component;
+        var go = component.gameObject;
+        var message = JsonUtility.ToJson(new Missing()
+        {
+            Context = context,
+            Name = go.name,
+            Path = FullPath(go),
+            Component = component.name,
+            PropertyName = property.displayName
+        });
+        
+        Debug.LogError(message, component);
+        _logFile?.WriteLine(message);
+    }
+    
+    public struct Missing
+    {
+        [JsonConverter(typeof(EnumConverter))]
+        public ContextType Context;
+        public string Path;
+        public string Name;
+        public string Component;
+        public string PropertyName;
+        
+        public enum ContextType { Project, Scene }
     }
 }

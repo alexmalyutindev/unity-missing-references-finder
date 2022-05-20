@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.Experimental.SceneManagement;
@@ -91,6 +92,30 @@ public class MissingReferencesFinder : MonoBehaviour {
         showFinishDialog(wasCancelled, count);
     }
 
+    [MenuItem("Tools/Find Missing References/In assets (Include Cildren)", false, 52)]
+    public static void FindMissingReferencesInAssetsIncludeChildren()
+    {
+        showInitialProgressBar("all assets");
+        var allAssetPaths = AssetDatabase.GetAllAssetPaths();
+        var objs = allAssetPaths
+            .Where(isProjectAsset)
+            .ToArray();
+
+        var wasCancelled = false;
+        var count = 0;
+
+        var dirInfo = new DirectoryInfo(Application.dataPath);
+        var logPath = Path.Combine(dirInfo.Parent.FullName, $"MissingReport_{DateTime.Now.ToFileTime()}.log");
+        
+        using (_logFile = new StreamWriter(logPath, true))
+        {
+            count = findMissingReferences("Project", objs, () => { wasCancelled = false; }, () => { wasCancelled = true; }, includeChildren: true);
+        }
+
+        showFinishDialog(wasCancelled, count);
+        EditorUtility.RevealInFinder(logPath);
+    }
+
     [MenuItem("Tools/Find Missing References/Everywhere", false, 53)]
     public static void FindMissingReferencesEverywhere() {
         var currentScenePath = SceneManager.GetActiveScene().path;
@@ -168,7 +193,7 @@ public class MissingReferencesFinder : MonoBehaviour {
 #endif
     }
 
-    private static int findMissingReferences(string context, string[] paths, Action onFinished, Action onCanceled, float initialProgress = 0f, float progressWeight = 1f) {
+    private static int findMissingReferences(string context, string[] paths, Action onFinished, Action onCanceled, float initialProgress = 0f, float progressWeight = 1f, bool includeChildren = false) {
         var count = 0;
         var wasCancelled = false;
         for (var i = 0; i < paths.Length; i++) {
@@ -182,7 +207,7 @@ public class MissingReferencesFinder : MonoBehaviour {
                 return count;
             }
 
-            count = findMissingReferences(context, obj);
+            count += findMissingReferences(context, obj);
         }
 
         onFinished.Invoke();
@@ -196,7 +221,7 @@ public class MissingReferencesFinder : MonoBehaviour {
         for (var j = 0; j < components.Length; j++) {
             var c = components[j];
             if (!c) {
-                Debug.LogError($"Missing Component in GameObject: {FullPath(go)} in {context}", go);
+                LogMissing($"Missing Component in GameObject: {FullPath(go)} in {context}", go);
                 count++;
                 continue;
             }
@@ -313,7 +338,7 @@ public class MissingReferencesFinder : MonoBehaviour {
     }
 
     private static void showError(string context, GameObject go, string componentName, string property) {
-        Debug.LogError($"Missing REFERENCE: [{context}]{FullPath(go)}. Component: {componentName}, Property: {property}", go);
+        LogMissing($"Missing: REFERENCE, Context: {context}, GO: {FullPath(go)}, Component: {componentName}, Property: {property}", go);
     }
 
     private static string FullPath(GameObject go) {
@@ -330,5 +355,12 @@ public class MissingReferencesFinder : MonoBehaviour {
         if(clearMethod == null) return;
 
         clearMethod.Invoke(null, null);
+    }
+
+    private static StreamWriter _logFile;
+    private static void LogMissing(string message, UnityEngine.Object context)
+    {
+        Debug.LogError(message, context);
+        _logFile?.WriteLine(message);
     }
 }

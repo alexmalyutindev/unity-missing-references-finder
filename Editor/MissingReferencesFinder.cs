@@ -477,7 +477,7 @@ public class MissingReferencesFinder : MonoBehaviour
 
     private static void LogMissingComponent(string context, GameObject go)
     {
-        var message = JsonUtility.ToJson(
+        var message = JsonConvert.SerializeObject(
             new Missing()
             {
                 Type = Missing.MissingType.MissingComponent,
@@ -488,6 +488,7 @@ public class MissingReferencesFinder : MonoBehaviour
                 Component = "[Missing]"
             }
         );
+
         UnityLog(message, go);
         _logStream?.WriteLine(message);
     }
@@ -563,6 +564,7 @@ public class MissingReferencesFinder : MonoBehaviour
         return _logStream;
     }
 
+    [Serializable]
     public struct Missing
     {
         [JsonConverter(typeof(StringEnumConverter))]
@@ -574,17 +576,11 @@ public class MissingReferencesFinder : MonoBehaviour
         public string Component;
         public string PropertyName;
 
-
+        [Serializable]
         public enum MissingType
         {
-            MissingReference,
-            MissingComponent
-        }
-
-        public enum ContextType
-        {
-            Project,
-            Scene
+            MissingReference = 0,
+            MissingComponent = 1
         }
     }
 }

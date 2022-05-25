@@ -511,6 +511,7 @@ public class MissingReferencesFinder : MonoBehaviour
                         AssetPath = assetPath,
                         LocalPath = FullPath(gameObject),
                         Component = component.GetType().Name,
+                        ComponentType = component.GetType().AssemblyQualifiedName,
                         PropertyName = property.propertyPath
                     }
                 );
@@ -575,6 +576,7 @@ public class MissingReferencesFinder : MonoBehaviour
         public string Name;
         public string Component;
         public string PropertyName;
+        public string ComponentType;
 
         [Serializable]
         public enum MissingType

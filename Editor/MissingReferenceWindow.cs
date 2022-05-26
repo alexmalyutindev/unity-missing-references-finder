@@ -8,11 +8,12 @@ using UnityEngine;
 using UnityEngine.UIElements;
 using UI = UnityEngine.UIElements;
 using EUI = UnityEditor.UIElements;
-using Image = UnityEngine.UI.Image;
-using Object = UnityEngine.Object;
 
 public class MissingReferenceWindow : EditorWindow
 {
+    [SerializeField]
+    private List<int> _selected;
+
     private List<MissingReferencesFinder.Missing> _missings;
     private ListView _missingView;
 
@@ -40,19 +41,18 @@ public class MissingReferenceWindow : EditorWindow
             }
         )
         {
+            name = "load_report",
             text = "Open"
         };
 
         _missings = new List<MissingReferencesFinder.Missing>();
-        _missingView = new UI.ListView(
-            _missings,
-            70,
-            MakeItem,
-            BindItem
-        );
-        _missingView.selectionType = SelectionType.Multiple;
+        _missingView = new UI.ListView(_missings, 70, MakeItem, BindItem)
+        {
+            selectionType = SelectionType.Multiple,
+            style = { flexGrow = new StyleFloat(1) }
+        };
         _missingView.onItemsChosen += SelectHandler;
-        _missingView.style.flexGrow = new StyleFloat(1);
+        _missingView.onSelectionChange += SelectionChangedHandler;
 
         rootVisualElement.Add(filterBar);
         rootVisualElement.Add(openFile);
@@ -65,6 +65,14 @@ public class MissingReferenceWindow : EditorWindow
         };
 
         rootVisualElement.Add(resetReference);
+        
+        Undo.undoRedoPerformed += () =>
+        {
+            if (Undo.GetCurrentGroupName() == "MissingView_SelectionChanged")
+            {
+                _missingView.SetSelection(_selected);
+            }
+        };
     }
 
     private static VisualElement FilterBar()
@@ -94,11 +102,28 @@ public class MissingReferenceWindow : EditorWindow
 
     private VisualElement MakeItem()
     {
-        var root = new UI.VisualElement();
+        var root = new UI.VisualElement()
+        {
+            style =
+            {
+                borderBottomWidth = 1,
+                borderBottomColor = new StyleColor(Color.black),
+                paddingTop = new StyleLength(2),
+                paddingLeft = new StyleLength(2)
+            }
+        };
+
+        root.Add(new UI.Label() { name = "asset_name" });
         root.Add(
             new UI.Label()
             {
-                name = "missing_label"
+                name = "local_path",
+                // style =
+                // {
+                //     textOverflow = new StyleEnum<TextOverflow>(TextOverflow.Ellipsis),
+                //     whiteSpace = new StyleEnum<WhiteSpace>(WhiteSpace.Normal),
+                //     display = new StyleEnum<DisplayStyle>(DisplayStyle.Flex)
+                // }
             }
         );
 
@@ -120,16 +145,21 @@ public class MissingReferenceWindow : EditorWindow
             }
         );
         root.Add(fieldContainer);
+
         return root;
     }
 
     private void BindItem(VisualElement element, int i)
     {
         // Label
-        var label = element.Q<UI.Label>("missing_label");
+        var nameLabel = element.Q<UI.Label>("asset_name");
         var missing = _missings[i];
         var fileName = Path.GetFileName(missing.AssetPath);
-        label.text = $"{fileName}\n{missing.LocalPath}";
+        nameLabel.text = $"{fileName}";
+
+        var localPath = element.Q<Label>("local_path");
+        localPath.text = missing.LocalPath;
+        localPath.tooltip = missing.LocalPath;
 
 
         // Field
@@ -143,54 +173,25 @@ public class MissingReferenceWindow : EditorWindow
         var property = EUI.BindingExtensions.BindProperty(field, serializedObject);
         _missings[i].SerializedProperty = property;
 
-        Debug.Log(property.objectReferenceInstanceIDValue);
-
         var clearReference = element.Q<UI.Button>("clear_ref");
-
         clearReference.clickable = new Clickable(
-            () =>
-            {
-                if (PrefabUtility.IsPartOfVariantPrefab(component))
-                {
-                    Debug.LogWarning(
-                        "[Clear Reference] Trying to clear ref in prefab variant!" +
-                        $"{serializedObject.targetObject}",
-                        serializedObject.targetObject
-                    );
-                    return;
-                }
-
-                var modification = new PropertyModification()
-                {
-                    target = component,
-                    value = String.Empty,
-                    objectReference = null,
-                    propertyPath = missing.PropertyName
-                };
-
-                serializedObject.Update();
-                property.objectReferenceValue = null;
-                property.objectReferenceInstanceIDValue = 0;
-                serializedObject.ApplyModifiedProperties();
-                PrefabUtility.SavePrefabAsset(asset);
-
-                if (PrefabUtility.IsDefaultOverride(modification))
-                {
-                    PrefabUtility.ApplyPropertyOverride(property, missing.AssetPath, InteractionMode.AutomatedAction);
-                }
-
-                Debug.Log($"[Clear Reference] {serializedObject.targetObject}", serializedObject.targetObject);
-            }
+            () => ClearReference(serializedObject, property, asset)
         );
+    }
+
+    private void SelectionChangedHandler(IEnumerable<object> obj)
+    {
+        Undo.RecordObject(this, "MissingView_SelectionChanged");
+        _selected = _missingView.selectedIndices.ToList();
     }
 
     private void SelectHandler(IEnumerable<object> obj)
     {
         var missing = (MissingReferencesFinder.Missing) obj.FirstOrDefault()!;
 
-        // var asset = AssetDatabase.LoadAssetAtPath<GameObject>(missing.AssetPath);
+        AssetDatabase.OpenAsset(AssetDatabase.LoadAssetAtPath<GameObject>(missing.AssetPath));
         var asset = PrefabUtility.LoadPrefabContents(missing.AssetPath);
-        AssetDatabase.OpenAsset(asset.GetInstanceID());
+
 
         var component = GetComponent(asset, missing);
         var serializedObject = new SerializedObject(component);
@@ -198,7 +199,6 @@ public class MissingReferenceWindow : EditorWindow
         var property = serializedObject.FindProperty(missing.PropertyName);
 
         Selection.SetActiveObjectWithContext(component, asset);
-        Debug.Log(property);
     }
 
     private static Component GetComponent(GameObject asset, MissingReferencesFinder.Missing missing)
@@ -221,54 +221,27 @@ public class MissingReferenceWindow : EditorWindow
         AssetDatabase.StartAssetEditing();
         foreach (MissingReferencesFinder.Missing missing in _missingView.selectedItems)
         {
-            // var asset = PrefabUtility.LoadPrefabContents(missing.AssetPath);
-            // var component = GetComponent(asset, missing);
-            // var serializedObject = new SerializedObject(component);
-            // var property = serializedObject.FindProperty(missing.PropertyName);
-            //
-            // AssetDatabase.StartAssetEditing();
-            //
-            // // property.DeleteCommand();
-            // // property.objectReferenceInstanceIDValue = 0;
-            //
-            // var propertyModification = new PropertyModification()
-            // {
-            //     target = component,
-            //     objectReference = null,
-            //     propertyPath = missing.PropertyName
-            // };
-            // PrefabUtility.RecordPrefabInstancePropertyModifications(component);
-            // PrefabUtility.SetPropertyModifications(asset, new [] { propertyModification });
-            //
-            // AssetDatabase.StopAssetEditing();
-            //
-            // PrefabUtility.SaveAsPrefabAsset(asset, missing.AssetPath);
-            // Debug.Log($"Fix: {missing.AssetPath}");
-
             var asset = AssetDatabase.LoadAssetAtPath<GameObject>(missing.AssetPath);
             var property = missing.SerializedProperty;
             var serializedObject = property.serializedObject;
 
-            if (PrefabUtility.IsPartOfVariantPrefab(serializedObject.targetObject))
-            {
-                Debug.LogWarning(
-                    "[Clear Reference] Trying to clear ref in prefab variant!\n" +
-                    $"{serializedObject.targetObject}",
-                    serializedObject.targetObject
-                );
-                continue;
-            }
+            // TODO: Reset default overrides!
+            // var overrides = PrefabUtility.GetObjectOverrides(asset, true);
 
-
-            serializedObject.Update();
-            property.objectReferenceValue = null;
-            property.objectReferenceInstanceIDValue = 0;
-            serializedObject.ApplyModifiedProperties();
-            PrefabUtility.SavePrefabAsset(asset);
-            Debug.Log($"[Clear] {serializedObject.targetObject}", serializedObject.targetObject);
+            ClearReference(serializedObject, property, asset);
         }
 
         AssetDatabase.StopAssetEditing();
+    }
+
+    private static void ClearReference(SerializedObject serializedObject, SerializedProperty property, GameObject asset)
+    {
+        serializedObject.Update();
+        property.objectReferenceValue = null;
+        property.objectReferenceInstanceIDValue = 0;
+        serializedObject.ApplyModifiedProperties();
+        PrefabUtility.SavePrefabAsset(asset);
+        Debug.Log($"[Clear] {serializedObject.targetObject}", serializedObject.targetObject);
     }
 
     private async void LoadReportFromFile(string logFilePath)
@@ -277,7 +250,14 @@ public class MissingReferenceWindow : EditorWindow
             return;
 
         _missings.Clear();
-        Debug.Log($"Open [{logFilePath}]...");
+        _missingView.Refresh();
+
+        var loadButton = rootVisualElement.Q<UI.Button>("load_report");
+
+        Debug.Log($"Loading... [{logFilePath}]");
+        loadButton.SetEnabled(false);
+        var defaultText = loadButton.text;
+        loadButton.text = "Loading...";
 
         using var stream = File.OpenRead(logFilePath);
         using var reader = new StreamReader(stream);
@@ -288,15 +268,25 @@ public class MissingReferenceWindow : EditorWindow
 
             var missing = JsonConvert.DeserializeObject<MissingReferencesFinder.Missing>(line);
             var asset = AssetDatabase.LoadAssetAtPath<GameObject>(missing.AssetPath);
-            var component = GetComponent(asset, missing);
-            var serializedObject = new SerializedObject(component);
-            var property = serializedObject.FindProperty(missing.PropertyName);
-            missing.SerializedProperty = property;
+            try
+            {
+                var component = GetComponent(asset, missing);
+                var serializedObject = new SerializedObject(component);
+                var property = serializedObject.FindProperty(missing.PropertyName);
+                missing.SerializedProperty = property;
 
-            _missings.Add(missing);
+                _missings.Add(missing);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"Format error:\n{line}");
+            }
         }
 
         _missingView.Refresh();
-        Debug.Log("Opened!");
+        loadButton.SetEnabled(true);
+        loadButton.text = defaultText;
+
+        Debug.Log("Loaded!");
     }
 }

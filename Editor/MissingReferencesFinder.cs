@@ -566,7 +566,7 @@ public class MissingReferencesFinder : MonoBehaviour
     }
 
     [Serializable]
-    public struct Missing
+    public class Missing
     {
         [JsonConverter(typeof(StringEnumConverter))]
         public MissingType Type;
@@ -584,5 +584,8 @@ public class MissingReferencesFinder : MonoBehaviour
             MissingReference = 0,
             MissingComponent = 1
         }
+        
+        [JsonIgnore]
+        public SerializedProperty SerializedProperty { get; set; }
     }
 }
